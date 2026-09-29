@@ -1,0 +1,10 @@
+data/raw/
+data/index/
+data/corpus.jsonl
+data/llm_cache.jsonl
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+results/*.tmp

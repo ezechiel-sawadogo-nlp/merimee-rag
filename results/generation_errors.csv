@@ -1,0 +1,4 @@
+config,abstention à tort,correct,échec génération,échec retrieval
+rag-bm25,1,33,12,4
+rag-dense,0,30,12,8
+rag-hybrid,0,33,11,6

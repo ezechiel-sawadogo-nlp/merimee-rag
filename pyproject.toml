@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "merimee-rag"
+version = "0.1.0"
+description = "RAG évalué sur la base Mérimée des monuments historiques (BM25 / dense / hybride + LLM local)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy", "pandas", "requests", "rank_bm25", "snowballstemmer",
+  "sentence-transformers>=2.6", "matplotlib", "streamlit",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+merimee-rag = "merimee_rag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]

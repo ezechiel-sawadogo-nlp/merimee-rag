@@ -1,0 +1,7 @@
+subset,A,B,metric,delta(A-B),p_value
+toutes,bm25,dense,mrr@10,0.08789541821456726,0.002
+toutes,bm25,hybrid,mrr@10,0.022706292919059012,0.2354
+toutes,dense,hybrid,mrr@10,-0.06518912529550824,0.0008
+propres,bm25,dense,mrr@10,0.021086956521739197,0.3896
+propres,bm25,hybrid,mrr@10,-0.021739130434782594,0.1378
+propres,dense,hybrid,mrr@10,-0.04282608695652179,0.0278
