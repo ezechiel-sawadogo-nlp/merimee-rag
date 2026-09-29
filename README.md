@@ -13,14 +13,24 @@ Le but du projet n'est pas seulement de *faire* un RAG, mais de **mesurer** ce q
 - le système **s'abstient-il** quand la réponse n'est pas dans la base ?
 - que gagne-t-on par rapport au **même LLM sans RAG** ?
 
+```mermaid
+flowchart LR
+    Q([Question]) --> BM25["BM25<br/>analyse française"]
+    Q --> DENSE["Dense<br/>multilingual-e5-small"]
+    BM25 --> RRF{{"Fusion RRF<br/>(hybride)"}}
+    DENSE --> RRF
+    RRF --> CTX["5 meilleurs extraits<br/>+ en-tête du monument"]
+    CTX --> LLM["qwen2.5:3b via Ollama<br/>1. choisit l'extrait<br/>2. répond avec lui seul"]
+    LLM -->|extrait trouvé| A["Réponse citée [n]<br/>+ lien vers la notice POP"]
+    LLM -->|aucun| R["« Je ne trouve pas<br/>cette information »"]
+    subgraph IDX["Index construits hors ligne"]
+        C[("23 442 notices<br/>26 687 passages")]
+    end
+    C -.-> BM25
+    C -.-> DENSE
 ```
-question ─▶ retriever ─▶ top-k extraits ─▶ LLM (Ollama) ─▶ réponse citée [1][2]
-             │                                            ou « Je ne trouve pas… »
-             ├─ BM25 (analyse française : élisions, stopwords, Snowball)
-             ├─ dense (multilingual-e5-small, produit scalaire numpy)
-             ├─ hybride (Reciprocal Rank Fusion)
-             └─ Solr (optionnel : l'index du projet de cours)
-```
+
+*Architecture détaillée du code (générée automatiquement) : [GitDiagram](https://gitdiagram.com/ezechiel-sawadogo-nlp/merimee-rag).*
 
 ## Résultats
 
@@ -88,6 +98,16 @@ par question ; 50 questions pour la génération (intervalles de confiance large
 | **Cache disque** des appels LLM | Une évaluation de plusieurs heures est reprenable après un plantage. |
 
 ## Protocole d'évaluation
+
+```mermaid
+flowchart LR
+    N[("Notices tirées<br/>par région")] -->|qwen2.5:7b| T["141 questions + réponse + preuve<br/>+ 15 questions hors corpus"]
+    T --> RET["Retrieval<br/>Hit@k · MRR · nDCG<br/>BM25 / dense / hybride"]
+    T --> GEN["Génération<br/>sans RAG / RAG ×3"]
+    GEN -->|juge qwen2.5:7b| M["Exactitude · ancrage<br/>citations · abstention"]
+    RET --> REP[/"REPORT.md<br/>IC bootstrap · tests appariés"/]
+    M --> REP
+```
 
 **Jeu de test** (`eval/build_testset.py`)
 - Questions **synthétiques** : échantillon de notices **stratifié par région** ; le LLM écrit une question (qui nomme le monument et la commune), la réponse, et **l'extrait mot pour mot** qui la justifie. Si l'extrait ne se retrouve pas dans l'historique, la paire est rejetée : filtre automatique contre les questions inventées.
