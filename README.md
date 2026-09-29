@@ -60,7 +60,7 @@ Sur les 50 questions, le RAG (BM25) améliore la réponse dans 35 cas et la dég
 
 - **La génération est le maillon faible, pas le retrieval** : avec BM25, sur 50 questions, 12 échecs
   alors que la bonne notice était fournie, contre 4 échecs de retrieval. Un générateur plus gros
-  (7B au lieu de 3B) est la piste la plus directe — pas encore évaluée ici.
+  (7B au lieu de 3B) est la piste la plus directe ; pas encore évaluée ici.
 - **Questions hors corpus** : 13/15 refus corrects en BM25, 14/15 en dense, mais 9/15 seulement en
   hybride (écart non significatif sur 15 questions). Les pièges restants sont instructifs : la base
   contient une *église Notre-Dame-de-la-Paix* française (confondue avec la basilique de Yamoussoukro)
