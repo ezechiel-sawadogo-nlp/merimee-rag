@@ -151,6 +151,46 @@ def main() -> None:
             parts += [f"| {i} | " + " | ".join(str(int(v)) for v in r) + " |" for i, r in e.iterrows()]
             parts.append("")
 
+    if (R / "agent_summary.csv").exists():
+        a = pd.read_csv(R / "agent_summary.csv")
+        types = [t for t in ["count", "list", "argmax", "multistep", "lookup", "ooc", "TOTAL"] if t in set(a["type"])]
+        labels = {"count": "Comptage", "list": "Liste", "argmax": "Maximum", "multistep": "Multi-étapes",
+                  "lookup": "Fait (historique)", "ooc": "Hors corpus", "TOTAL": "Total"}
+        wide = []
+        for sys_name, g in a.groupby("system", sort=False):
+            row = {"system": {"rag": "rag-hybrid", "agent": "agent"}.get(sys_name, sys_name)}
+            for _, r in g.iterrows():
+                row[r["type"]], row[f"{r['type']}_lo"], row[f"{r['type']}_hi"] = r["score"], r["score_lo"], r["score_hi"]
+            wide.append(row)
+        wide = pd.DataFrame(wide)
+        COLORS.setdefault("agent", "#4a3aa7")
+        grouped_bars(wide, "system", types, labels, "RAG fixe vs agent (même modèle)", R / "agent.png")
+        parts += ["## RAG fixe vs agent\n",
+                  f"{int(a[a.type == 'TOTAL']['n'].iloc[0])} questions. Même modèle pour les deux systèmes ; "
+                  "notation automatique sur des réponses calculées à partir des données (juge LLM pour "
+                  "« Fait »).\n", "![agent](agent.png)\n", md_table(wide, "system", types, labels), ""]
+        ag = a[a.system == "agent"].set_index("type")
+        if not ag.empty and "tool_ok" in ag:
+            parts += ["\n**Comportement de l'agent**\n",
+                      "| type | bon outil | appels d'outils | appels en erreur | filtres inventés | "
+                      "citations inventées | étapes épuisées | latence |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for t in types:
+                if t in ag.index and t != "TOTAL":
+                    r = ag.loc[t]
+                    fmt = lambda v, p=True: "–" if pd.isna(v) else (f"{v:.0%}" if p else f"{v:.1f}")  # noqa: E731
+                    parts.append(f"| {labels[t]} | {fmt(r.get('tool_ok'))} | {fmt(r.get('n_tool_calls'), False)} | "
+                                 f"{fmt(r.get('tool_error_rate'))} | {fmt(r.get('extra_filter_rate'))} | "
+                                 f"{fmt(r.get('invented_citation_rate'))} | {fmt(r.get('max_steps_rate'))} | "
+                                 f"{r['latency_s']:.1f} s |")
+            parts.append("")
+        if (R / "agent_errors.csv").exists():
+            e = pd.read_csv(R / "agent_errors.csv", index_col=0)
+            parts += ["\n**Diagnostic de chaque réponse de l'agent**\n",
+                      "| type | " + " | ".join(e.columns) + " |", "|---|" + "---|" * len(e.columns)]
+            parts += [f"| {labels.get(i, i)} | " + " | ".join(str(int(v)) for v in r) + " |" for i, r in e.iterrows()]
+            parts.append("")
+
     (R / "REPORT.md").write_text("\n".join(parts), encoding="utf-8")
     print(f"→ {R / 'REPORT.md'}")
 

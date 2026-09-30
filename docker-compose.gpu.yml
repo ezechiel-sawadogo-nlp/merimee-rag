@@ -1,0 +1,11 @@
+# GPU NVIDIA pour Ollama (pilotes + NVIDIA Container Toolkit requis) :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,0 +1,145 @@
+[
+{
+"id": "TEST1001",
+"titre": "Église Saint-Fictif",
+"denomination": [
+"église"
+],
+"commune": "Villetest",
+"departement": "Aube",
+"region": "Grand Est",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "classé",
+"annee_protection": 1910,
+"siecles": [
+12,
+15
+],
+"siecle_principal": 12,
+"statut_proprietaire": "publique",
+"auteur": [],
+"historique": "Fiche fictive. Église romane du 12e siècle, voûtée au 15e siècle.",
+"coordonnees": "48.3,4.1"
+},
+{
+"id": "TEST1002",
+"titre": "Église Notre-Dame-Imaginaire",
+"denomination": [
+"église"
+],
+"commune": "Pontest",
+"departement": "Aube",
+"region": "Grand Est",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "inscrit",
+"annee_protection": 1926,
+"siecles": [
+16
+],
+"siecle_principal": 16,
+"statut_proprietaire": "publique",
+"auteur": [
+"Jean Fictif (architecte)"
+],
+"historique": "Fiche fictive. Reconstruite au 16e siècle par l'architecte Jean Fictif.",
+"coordonnees": "48.2,4.0"
+},
+{
+"id": "TEST1003",
+"titre": "Château de Testmont",
+"denomination": [
+"château"
+],
+"commune": "Testmont",
+"departement": "Marne",
+"region": "Grand Est",
+"domaine": [
+"architecture domestique"
+],
+"protection": "classé",
+"annee_protection": 1950,
+"siecles": [
+17
+],
+"siecle_principal": 17,
+"statut_proprietaire": "privée",
+"auteur": [
+"Jean Fictif (architecte)"
+],
+"historique": "Fiche fictive. Château bâti pour la famille de Testmont sur les plans de Jean Fictif.",
+"coordonnees": "49.0,4.0"
+},
+{
+"id": "TEST1004",
+"titre": "Moulin du Gué",
+"denomination": [
+"moulin à eau"
+],
+"commune": "Riviertest",
+"departement": "Côte-d'Or",
+"region": "Bourgogne-Franche-Comté",
+"domaine": [
+"architecture industrielle"
+],
+"protection": "inscrit",
+"annee_protection": 1988,
+"siecles": [
+18
+],
+"siecle_principal": 18,
+"statut_proprietaire": "privée",
+"auteur": [],
+"historique": "Fiche fictive. Moulin à eau du 18e siècle.",
+"coordonnees": "47.3,5.0"
+},
+{
+"id": "TEST1005",
+"titre": "Église Saint-Exemple",
+"denomination": [
+"église"
+],
+"commune": "Riviertest",
+"departement": "Côte-d'Or",
+"region": "Bourgogne-Franche-Comté",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "classé",
+"annee_protection": 1862,
+"siecles": [
+12
+],
+"siecle_principal": 12,
+"statut_proprietaire": "publique",
+"auteur": [],
+"historique": "Fiche fictive. Belle église romane.",
+"coordonnees": "47.3,5.1"
+},
+{
+"id": "TEST1006",
+"titre": "Croix de Testville",
+"denomination": [
+"croix de chemin"
+],
+"commune": "Villetest;Pontest",
+"departement": "Aube",
+"region": "Grand Est",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "inscrit",
+"annee_protection": 1930,
+"siecles": [
+16
+],
+"siecle_principal": 16,
+"statut_proprietaire": "publique",
+"auteur": [],
+"historique": "Fiche fictive. Croix de chemin sculptée.",
+"coordonnees": ""
+}
+]

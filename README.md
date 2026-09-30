@@ -83,6 +83,61 @@ Sur les 50 questions, le RAG (BM25) améliore la réponse dans 35 cas et la dég
 **Limites** : juge automatique non validé contre une annotation humaine ; une seule notice « correcte »
 par question ; 50 questions pour la génération (intervalles de confiance larges).
 
+## Mode agent : le modèle choisit ses outils
+
+Le RAG fixe répond bien à « qui a construit Chambord ? », mais pas à « combien d'églises classées
+dans l'Aube ? » : la réponse n'est écrite dans aucun passage, elle se *calcule*. Le mode agent donne
+au LLM (`qwen2.5:7b`, *tool calling* natif d'Ollama, tout en local) quatre outils, et le laisse décider
+lesquels appeler, dans quel ordre, jusqu'à pouvoir répondre :
+
+| Outil | Rôle |
+|---|---|
+| `search(query, method)` | recherche BM25 / dense / hybride dans les historiques (le RAG, en outil) |
+| `filter_notices(commune, departement, region, denomination, siecle, protection, …)` | liste les notices qui satisfont des critères structurés |
+| `count(…, group_by)` | comptages et agrégations (« quel département en a le plus ? ») |
+| `get_notice(ref)` | notice complète : historique, auteurs, dates |
+
+```mermaid
+flowchart LR
+    Q([Question]) --> A{"qwen2.5:7b<br/>choisit un outil"}
+    A -->|search| S["Passages<br/>(BM25/dense/RRF)"]
+    A -->|filter_notices / count| M["Métadonnées<br/>24 824 notices"]
+    A -->|get_notice| N["Notice complète"]
+    S --> A
+    M --> A
+    N --> A
+    A -->|assez d'information| R["Réponse chiffrée<br/>et citée [PA…]"]
+```
+
+Choix de conception :
+- les filtres et comptages portent sur **toute la base** (24 824 notices), pas seulement sur celles qui
+  ont un historique ; valeurs comparées sans accents ni casse, pluriels tolérés (« châteaux ») ;
+- un outil n'échoue jamais en silence : une valeur inconnue renvoie une **erreur avec suggestions**
+  (« "Bourgogne" correspond à : Bourgogne-Franche-Comté (champ région) »), et l'agent se corrige à
+  l'étape suivante ;
+- chaque étape est tracée (outil, arguments, résultat, durée), ce qui rend l'agent **évaluable** ;
+- les **citations sont vérifiées** : une référence citée qui ne sort d'aucun outil est signalée comme
+  inventée, et les **filtres ajoutés sans que la question les demande** sont comptés (deux dérives
+  observées avec `qwen2.5:7b` dès les premiers essais).
+
+```powershell
+merimee-rag agent "Quel département du Centre-Val de Loire compte le plus de châteaux classés ?"
+# Trace attendue (les chiffres sont ceux que renvoie l'outil sur la base) :
+#  1. count({"region": "Centre-Val de Loire", "denomination": "château", "protection": "classé",
+#            "group_by": "departement"}) → total=144
+#  → L'Indre-et-Loire, avec 40 châteaux classés.
+```
+
+Dans la démo Streamlit, le sélecteur **Mode : Agent** affiche les étapes de l'agent.
+
+**Évaluation RAG fixe vs agent** ([`eval/eval_agent.py`](eval/eval_agent.py)) : 72 questions dont les
+réponses sont **calculées sur les données** (donc exactes, sans juge) — comptages, listes de notices,
+maxima par département, questions multi-étapes (« qui est l'architecte de X, et combien de monuments
+lui sont attribués ? ») — plus des questions factuelles sur l'historique (le terrain du RAG) et hors
+corpus. Même modèle pour les deux systèmes : seule l'architecture change. Mesures : exactitude par type,
+bon choix d'outil, nombre d'appels, appels en erreur, filtres et citations inventés, latence, et un **diagnostic de chaque échec**
+(aucun outil, mauvais outil, mauvais arguments, ou bonne donnée obtenue mais mal restituée).
+
 ## Choix de conception
 
 | Choix | Pourquoi |
@@ -143,8 +198,26 @@ python -m venv .venv ; .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 
 ollama pull qwen2.5:3b     # générateur
-ollama pull qwen2.5:7b     # juge (et génération des questions)
+ollama pull qwen2.5:7b     # agent, juge et génération des questions
 ```
+
+## Avec Docker (tout en une commande)
+
+```powershell
+docker compose up --build        # puis http://localhost:8501
+```
+
+Trois services : `ollama` (serveur de modèles), `ollama-init` (télécharge `qwen2.5:3b` et `qwen2.5:7b`
+une seule fois, ~7 Go) et `app` (démo Streamlit ; au premier démarrage, construit le corpus et les
+index dans un volume, puis les réutilise). Tout est conservé entre deux lancements.
+
+```powershell
+docker compose exec app merimee-rag agent "Quel département compte le plus de moulins protégés ?"
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build   # avec GPU NVIDIA
+```
+
+Sans GPU, compter 10 à 30 s par réponse du 7B. `MERIMEE_NO_DENSE=1 docker compose up` démarre plus vite
+(recherche BM25 seulement, sans calcul des embeddings).
 
 ## Utilisation
 
@@ -154,6 +227,7 @@ merimee-rag index           # chunks + BM25 (~1 min) + embeddings (CPU : compter
 
 merimee-rag ask "Qui a fait construire le château de Chambord ?"
 merimee-rag ask "..." --retriever none      # même LLM, sans la base
+merimee-rag agent "Combien d'églises classées dans le département « Aube » ?"
 streamlit run app.py                        # démo web
 ```
 
@@ -165,6 +239,10 @@ python -m eval.eval_retrieval                    # rapide (quelques minutes)
 python -m eval.eval_generation --limit 50        # long sur CPU : voir ci-dessous
 python -m eval.report                            # → results/REPORT.md + figures
 python -m eval.smoke                             # test de non-régression rapide (8 questions)
+
+python -m eval.agent_questions                   # 72 questions à réponses calculées (déjà fournies)
+python -m eval.eval_agent                        # RAG fixe vs agent → results/agent_*.csv
+python -m eval.report
 ```
 
 Pas de GPU ? Le notebook [`notebooks/colab_eval.ipynb`](notebooks/colab_eval.ipynb) enchaîne toute
@@ -173,7 +251,7 @@ Après une modification de l'analyse (et sans rappeler aucun LLM) : `python -m e
 
 Coût de la génération : `limit × 4 configs` réponses + jusqu'à 3 appels juge par réponse. Sur un portable sans GPU, compter plusieurs heures pour `--limit 50` ; `--configs no-rag rag-hybrid` pour une première passe. Grâce au cache, une exécution interrompue reprend là où elle s'est arrêtée.
 
-Variables d'environnement utiles : `MERIMEE_GEN_MODEL`, `MERIMEE_JUDGE_MODEL`, `MERIMEE_EMBED_MODEL`, `MERIMEE_TOPK_CTX`, `MERIMEE_SOLR_URL` (ex. `http://localhost:8983/solr/merimee` pour ajouter l'index Solr du cours comme 4ᵉ retriever).
+Variables d'environnement utiles : `MERIMEE_GEN_MODEL`, `MERIMEE_AGENT_MODEL`, `MERIMEE_AGENT_MAX_STEPS`, `MERIMEE_JUDGE_MODEL`, `MERIMEE_EMBED_MODEL`, `MERIMEE_TOPK_CTX`, `MERIMEE_SOLR_URL` (ex. `http://localhost:8983/solr/merimee` pour ajouter l'index Solr du cours comme 4ᵉ retriever).
 
 ## Tests
 

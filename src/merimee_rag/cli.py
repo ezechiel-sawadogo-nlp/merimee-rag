@@ -5,6 +5,7 @@
   prepare    filtre les notices avec historique → data/corpus.jsonl
   index      chunks + index BM25 + embeddings
   ask        pose une question au RAG
+  agent      pose une question à l'agent (outils : recherche, filtres, comptages, notice)
 """
 from __future__ import annotations
 
@@ -31,6 +32,11 @@ def main(argv: list[str] | None = None) -> None:
     pa.add_argument("question")
     pa.add_argument("--retriever", default="hybrid", choices=["bm25", "dense", "hybrid", "solr", "none"])
     pa.add_argument("--model", default=None)
+    pg = sub.add_parser("agent", help="mode agent : le LLM choisit ses outils (recherche, filtres, comptages)")
+    pg.add_argument("question")
+    pg.add_argument("--model", default=None, help="modèle Ollama compatible outils (défaut : qwen2.5:7b)")
+    pg.add_argument("--max-steps", type=int, default=None)
+    pg.add_argument("--no-dense", action="store_true", help="outil search en BM25 seulement (démarrage rapide)")
     args = p.parse_args(argv)
     cfg = Config()
 
@@ -70,6 +76,34 @@ def main(argv: list[str] | None = None) -> None:
         from .store import build_indexes
 
         print(build_indexes(cfg, dense=not args.no_dense))
+
+    elif args.cmd == "agent":
+        import json as _json
+
+        from .agent import Agent
+        from .llm import DiskCache, OllamaLLM
+        from .store import System, build_toolbox
+
+        system = System(cfg, load_dense=not args.no_dense)
+        llm = OllamaLLM(args.model or cfg.agent_model, cfg.ollama_url, cfg.temperature, DiskCache(cfg.llm_cache))
+        agent = Agent(llm, build_toolbox(system), args.max_steps or cfg.agent_max_steps)
+
+        def show(i: int, st) -> None:
+            mark = "✗" if st.error else "→"
+            summary = st.result.get("erreur") or (
+                f"total={st.result['total']}" if "total" in st.result else
+                f"{len(st.result.get('resultats', []))} passages" if "resultats" in st.result else
+                st.result.get("titre", ""))
+            print(f" {i}. {st.tool}({_json.dumps(st.args, ensure_ascii=False)}) {mark} {summary}", flush=True)
+
+        print("L'agent réfléchit… (sur processeur, compter 1 à 2 min par étape avec le 7B)", flush=True)
+        res = agent.answer(args.question, on_step=show)
+        print("\n" + res.answer)
+        if res.unsupported_refs:
+            print(f"\n⚠ Références citées sans provenir d'un outil : {', '.join(res.unsupported_refs)}")
+        extra = " · max d'étapes atteint" if res.hit_max_steps else ""
+        n = len(res.steps)
+        print(f"\n({n} appel{'s' if n > 1 else ''} d'outil{'s' if n > 1 else ''}, {res.latency_s:.1f} s{extra})")
 
     elif args.cmd == "ask":
         from .llm import DiskCache, OllamaLLM

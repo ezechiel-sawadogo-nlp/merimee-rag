@@ -64,12 +64,30 @@ class OllamaLLM:
         payload: dict[str, Any] = {"model": self.model, "messages": messages, "stream": False, "options": options}
         if json_mode:
             payload["format"] = "json"
-        out = self._post_with_retry(payload)
+        out = self._post_with_retry(payload)["content"]
         if self.cache:
             self.cache.put(k, out)
         return out
 
-    def _post_with_retry(self, payload: dict, attempts: int = 5) -> str:
+    def chat_message(self, messages: list[dict], tools: list[dict] | None = None, **opts: Any) -> dict:
+        """Appel avec outils (tool calling). Renvoie le message complet de l'assistant :
+        {"role": "assistant", "content": ..., "tool_calls": [{"function": {"name", "arguments"}}]}."""
+        options = {"temperature": self.temperature, "num_ctx": self.num_ctx, "seed": 42, **opts}
+        k = DiskCache.key("tools", self.model, messages, options, tools)
+        if self.cache and (hit := self.cache.get(k)) is not None:
+            self.last_from_cache = True
+            return json.loads(hit)
+        self.last_from_cache = False
+        payload: dict[str, Any] = {"model": self.model, "messages": messages, "stream": False, "options": options}
+        if tools:
+            payload["tools"] = tools
+        msg = self._post_with_retry(payload)
+        msg = {"role": "assistant", "content": msg.get("content") or "", "tool_calls": msg.get("tool_calls") or []}
+        if self.cache:
+            self.cache.put(k, json.dumps(msg, ensure_ascii=False))
+        return msg
+
+    def _post_with_retry(self, payload: dict, attempts: int = 5) -> dict:
         """Réessaie sur erreur serveur (500, runner Ollama qui plante en changeant de modèle…)
         ou connexion coupée : 5 s, 10 s, 20 s, 40 s d'attente entre les essais."""
         import time
@@ -83,7 +101,7 @@ class OllamaLLM:
                     raise RuntimeError(f"Modèle Ollama '{self.model}' absent. Lance : ollama pull {self.model}")
                 if r.status_code < 500:
                     r.raise_for_status()
-                    return r.json()["message"]["content"]
+                    return r.json()["message"]
                 err = f"HTTP {r.status_code} : {r.text[:200]}"
             except (requests.ConnectionError, requests.Timeout) as e:
                 err = f"{type(e).__name__}"

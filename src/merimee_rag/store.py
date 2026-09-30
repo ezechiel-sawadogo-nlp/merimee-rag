@@ -82,3 +82,13 @@ class System:
                 [self.retrievers["bm25"], self.retrievers["dense"]], cfg.rrf_k, cfg.candidates)
         if cfg.solr_url:
             self.retrievers["solr"] = SolrRetriever(cfg.solr_url)
+
+
+def build_toolbox(system: "System"):
+    """Outils de l'agent : métadonnées de toute la base + retrievers du système."""
+    from .config import metadata_path
+    from .metadata import MetadataStore
+    from .tools import Toolbox
+
+    store = MetadataStore.load(metadata_path(system.cfg))
+    return Toolbox(store, system.retrievers, system.chunks)

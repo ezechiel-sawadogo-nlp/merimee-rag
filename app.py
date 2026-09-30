@@ -17,11 +17,21 @@ cfg = Config()
 EXAMPLES = ["Qui a fait construire le château de Chambord ?",
             "Quel architecte a dessiné la flèche du clocher de l'église d'Avirey-Lingey ?",
             "Quand la Grande Mosquée de Djenné a-t-elle été reconstruite ?"]
+AGENT_EXAMPLES = ["Combien d'églises classées y a-t-il dans le département « Aube » ?",
+                  "Quel département du Centre-Val de Loire compte le plus de châteaux classés ?",
+                  "Qui est l'architecte de l'Hôtel de Linage à Beaucaire, et combien de monuments lui sont attribués ?"]
 
 
 @st.cache_resource(show_spinner="Chargement des index…")
 def load_system() -> System:
     return System(cfg)
+
+
+@st.cache_resource(show_spinner="Chargement des métadonnées (24 824 notices)…")
+def load_toolbox():
+    from merimee_rag.store import build_toolbox
+
+    return build_toolbox(load_system())
 
 
 system = load_system()
@@ -30,12 +40,20 @@ by_ref = {n.ref: n for n in system.notices}
 # ------------------------------------------------------------------ barre latérale
 with st.sidebar:
     st.header("Réglages")
+    mode = st.radio("Mode", ["RAG", "Agent"], horizontal=True,
+                    help="RAG : recherche puis réponse (questions sur l'histoire d'un monument). "
+                         "Agent : le modèle choisit ses outils — recherche, filtres, comptages, notice — "
+                         "et peut enchaîner plusieurs étapes.")
     names = [*system.retrievers, "none"]
-    retr_name = st.radio("Retriever", names, index=names.index("hybrid") if "hybrid" in names else 0,
-                         help="bm25 = mots-clés · dense = sens (embeddings) · hybrid = fusion des deux · "
-                              "none = le LLM répond sans la base (pour comparer)")
-    model = st.text_input("Modèle Ollama", cfg.gen_model)
-    top_k = st.slider("Extraits fournis au LLM", 1, 10, cfg.top_k_context)
+    retr_name, top_k = "hybrid", cfg.top_k_context
+    if mode == "RAG":
+        retr_name = st.radio("Retriever", names, index=names.index("hybrid") if "hybrid" in names else 0,
+                             help="bm25 = mots-clés · dense = sens (embeddings) · hybrid = fusion des deux · "
+                                  "none = le LLM répond sans la base (pour comparer)")
+    model = st.text_input("Modèle Ollama", cfg.gen_model if mode == "RAG" else cfg.agent_model,
+                          help="L'agent a besoin d'un modèle qui gère les outils (qwen2.5:7b recommandé).")
+    if mode == "RAG":
+        top_k = st.slider("Extraits fournis au LLM", 1, 10, cfg.top_k_context)
     st.caption(f"{len(system.notices):,} notices · {len(system.chunks):,} passages indexés".replace(",", " "))
 
 # ------------------------------------------------------------------ question
@@ -72,11 +90,67 @@ def _use_example(text: str) -> None:
 
 
 st.text_input("Question", key="question", placeholder="Pose ta question sur un monument…")
-cols = st.columns(len(EXAMPLES))
-for c, ex in zip(cols, EXAMPLES):
+examples = AGENT_EXAMPLES if mode == "Agent" else EXAMPLES
+cols = st.columns(len(examples))
+for c, ex in zip(cols, examples):
     c.button(ex, on_click=_use_example, args=(ex,))
 
 q = st.session_state.get("question", "").strip()
+
+# ------------------------------------------------------------------ mode agent
+if q and mode == "Agent":
+    import json as _json
+
+    from merimee_rag.agent import Agent
+
+    toolbox = load_toolbox()
+    llm = OllamaLLM(model, cfg.ollama_url, cfg.temperature, DiskCache(cfg.llm_cache))
+    with st.spinner("L'agent réfléchit et appelle ses outils…"):
+        try:
+            res = Agent(llm, toolbox, cfg.agent_max_steps).answer(q)
+        except Exception as e:
+            st.error(f"{e}\n\nVérifie qu'Ollama tourne et que le modèle est installé (`ollama pull {model}`).")
+            st.stop()
+    st.markdown("### Réponse")
+    st.markdown(f"> **{q}**")
+    if res.abstained:
+        st.info(res.answer)
+    else:
+        st.markdown(res.answer)
+    extra = " · nombre maximal d'étapes atteint" if res.hit_max_steps else ""
+    st.caption(f"{len(res.steps)} appel(s) d'outil(s) · "
+               f"{'réponse en cache' if llm.last_from_cache else f'{res.latency_s:.1f} s'} · {model}{extra}")
+
+    left, right = st.columns([3, 2])
+    with left:
+        st.markdown("#### Étapes de l'agent")
+        if not res.steps:
+            st.caption("Aucun outil appelé.")
+        for i, stp in enumerate(res.steps, 1):
+            r = stp.result
+            summary = r.get("erreur") or (f"total : {r['total']}" if "total" in r else
+                                          f"{len(r.get('resultats', []))} passages" if "resultats" in r else
+                                          r.get("titre", ""))
+            with st.expander(f"{'⚠️' if stp.error else '🔧'} {i}. {stp.tool} — {summary}"):
+                st.code(_json.dumps(stp.args, ensure_ascii=False, indent=1), language="json")
+                st.json(r, expanded=False)
+    with right:
+        refs = [ref for ref in res.cited_refs if ref in toolbox.store.by_ref]
+        if refs:
+            st.markdown("#### Notices citées")
+            pts = []
+            for ref in refs:
+                rec = toolbox.store.by_ref[ref]
+                st.markdown(f"- [{rec.titre}]({rec.url}) — {', '.join(rec.commune)} ({rec.departement})")
+                try:
+                    lat, lon = (float(x) for x in rec.coordonnees.split(","))
+                    pts.append({"lat": lat, "lon": lon, "cited": True, "label": rec.titre,
+                                "lieu": ", ".join(rec.commune), "color": [227, 73, 72, 230]})
+                except ValueError:
+                    pass
+            if pts:
+                st.pydeck_chart(_map(pd.DataFrame(pts)))
+    st.stop()
 
 # ------------------------------------------------------------------ réponse
 if q:

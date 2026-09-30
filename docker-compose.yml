@@ -1,0 +1,46 @@
+# Lancement complet : docker compose up --build   →   http://localhost:8501
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: "2"      # générateur + agent/juge restent chargés ensemble
+      OLLAMA_KEEP_ALIVE: "1h"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Télécharge les modèles une fois (conservés dans le volume « ollama »), puis s'arrête.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${MERIMEE_GEN_MODEL:-qwen2.5:3b} && ollama pull ${MERIMEE_AGENT_MODEL:-qwen2.5:7b}"]
+    restart: "no"
+
+  app:
+    build: .
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    ports:
+      - "8501:8501"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MERIMEE_GEN_MODEL: ${MERIMEE_GEN_MODEL:-qwen2.5:3b}
+      MERIMEE_AGENT_MODEL: ${MERIMEE_AGENT_MODEL:-qwen2.5:7b}
+      MERIMEE_NO_DENSE: ${MERIMEE_NO_DENSE:-}
+    volumes:
+      - merimee-data:/data
+
+volumes:
+  ollama:
+  merimee-data:
