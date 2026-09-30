@@ -12,6 +12,7 @@ Le but du projet n'est pas seulement de *faire* un RAG, mais de **mesurer** ce q
 - la réponse est-elle **juste**, **ancrée dans la source**, **correctement citée** ?
 - le système **s'abstient-il** quand la réponse n'est pas dans la base ?
 - que gagne-t-on par rapport au **même LLM sans RAG** ?
+- un **agent** qui choisit lui-même ses outils (recherche, filtres, comptages) fait-il mieux qu'un RAG fixe ? (voir [Mode agent](#mode-agent--le-modèle-choisit-ses-outils))
 
 ```mermaid
 flowchart LR
@@ -137,6 +138,86 @@ lui sont attribués ? ») — plus des questions factuelles sur l'historique (le
 corpus. Même modèle pour les deux systèmes : seule l'architecture change. Mesures : exactitude par type,
 bon choix d'outil, nombre d'appels, appels en erreur, filtres et citations inventés, latence, et un **diagnostic de chaque échec**
 (aucun outil, mauvais outil, mauvais arguments, ou bonne donnée obtenue mais mal restituée).
+
+### Résultats : RAG fixe vs agent
+
+Colab (GPU T4), `qwen2.5:7b` pour les deux systèmes, juge `qwen2.5:7b` pour les questions factuelles.
+Intervalles de confiance bootstrap à 95 %. Détail : [`results/REPORT.md`](results/REPORT.md).
+
+| Type de question | n | RAG fixe | Agent |
+|---|---|---|---|
+| Comptage (« combien d'églises classées dans l'Aube ? ») | 20 | 0,05 | **0,85** |
+| Liste (« quels monuments protégés à Monestiés ? ») | 12 | 0,65 | **1,00** |
+| Maximum (« quel département a le plus de… ? ») | 10 | 0,10 | **0,90** |
+| Multi-étapes (architecte de X, puis ses autres monuments) | 10 | 0,45 | **0,80** |
+| Fait tiré d'un historique | 15 | **0,90** | 0,73 |
+| Hors corpus (doit refuser) | 5 | **1,00** | 0,60 |
+| **Total** | 72 | 0,46 <sub>[0,36–0,55]</sub> | **0,83** <sub>[0,75–0,91]</sub> |
+
+![agent](results/agent.png)
+
+- **Le gain est là où la réponse se calcule.** Le RAG fixe ne voit que 5 passages : il ne peut ni
+  compter ni classer, et répond au hasard (0,05 en comptage). L'agent appelle `count` et recopie le
+  chiffre exact.
+- **Sur le terrain du RAG, l'agent perd un peu.** Il est moins bon sur les faits tirés des historiques
+  (0,73 contre 0,90), parce qu'il lui arrive de choisir `filter_notices` au lieu de `search`. Il refuse
+  aussi moins bien les questions hors corpus. Les deux architectures sont donc **complémentaires** : un
+  routeur (questions factuelles vers le RAG, le reste vers l'agent) serait l'étape suivante.
+- **Comportement** : 1,04 appel d'outil par question en moyenne, bon outil dans 87 % des cas, aucune
+  citation inventée, aucun filtre inventé. Latence d'environ 4 s par question sur T4, du même ordre
+  que le RAG fixe.
+
+**Trois itérations guidées par l'analyse d'erreurs.** Chaque version corrige les échecs diagnostiqués
+dans la précédente ; même modèle, mêmes questions.
+
+| | RAG fixe | agent v1 | agent v2 | agent v3 |
+|---|---|---|---|---|
+| Comptage | 0,05 | 0,95 | 0,95 | 0,85 |
+| Liste | 0,65 | 0,83 | 0,37 | **1,00** |
+| Maximum | 0,10 | 1,00 | 0,90 | 0,90 |
+| Multi-étapes | 0,45 | 0,30 | **0,80** | **0,80** |
+| Fait (historique) | **0,90** | 0,43 | 0,07 | 0,73 |
+| Hors corpus | **1,00** | **1,00** | 0,80 | 0,60 |
+| **Total** | 0,46 | 0,74 | 0,63 | **0,83** |
+
+1. **Premiers essais en local.** Ils ont fait apparaître trois dérives : une syntaxe de requête
+   inventée (`departement: {"$in": [...]}`), des bornes de dates ajoutées sans raison (38 au lieu
+   de 40), et une référence recopiée depuis l'exemple du prompt. Corrections : valeurs non scalaires
+   refusées avec une piste (`group_by`), prompt nettoyé, vérification des citations.
+2. **v1 → v2.** En multi-étapes, l'agent ne trouvait pas le nom exact de l'architecte avant de
+   compter. `search` renvoie désormais les auteurs de chaque notice, et le prompt décrit
+   l'enchaînement `search` → `count(auteur=…)` : ce type passe de 0,30 à 0,80. En liste, un filtre `protection="inscrit"` était ajouté dans 12 listes sur 12 : une
+   consigne a été ajoutée au prompt.
+3. **La v2 régresse (0,63), et le diagnostic dit pourquoi.** J'avais ajouté des paramètres `commune`
+   et `departement` à `search` : le modèle s'est mis à l'utiliser comme un outil de filtrage, sans
+   `query`, et 92 % de ses appels sur les questions factuelles ont échoué. En liste, le filtre inventé
+   est simplement passé de `"inscrit"` à `"classé"` : le modèle veut exprimer « protégé » et n'a pas
+   de valeur valide pour le dire.
+4. **v3 : corriger les outils plutôt que le prompt.** `search` n'expose plus que `query`, et reconstruit
+   la requête s'il reçoit des critères à la place. `protection` accepte la valeur `"tous"`. Une commune
+   homonyme sans département déclenche un avertissement. Résultat : Liste 1,00 et Fait 0,73, sans filtre
+   inventé. Leçon : un petit modèle suit mieux **une interface d'outil bien conçue qu'une consigne
+   de plus dans le prompt**.
+
+**Erreurs restantes (v3)**
+
+- **Sous-filtrage**, l'inverse de la v1 : pour « croix inscrites dans le Bas-Rhin », l'agent oublie
+  `denomination="croix"` (2 comptages sur 20).
+- **Multi-étapes arrêtées trop tôt** (4 sur 10) : après `search`, l'agent donne l'architecte (juste)
+  puis un nombre de monuments sans avoir appelé `count`. Ce nombre est donc inventé, et une fois, le
+  nom de l'architecte aussi.
+- **Mauvais outil sur les faits** (3 sur 15) : `filter_notices` au lieu de `search`.
+- **Hors corpus** : les 2 échecs sont en fait des refus accompagnés d'une phrase d'explication
+  (« Neuschwanstein est situé en Allemagne »). La notation, stricte, compte tout refus accompagné
+  d'une affirmation comme une réponse. Je ne l'ai pas assouplie après coup.
+- **Ambiguïté du jeu de test** : dans 2 questions sur les « immeubles inscrits », *immeuble* a son sens
+  juridique (tout bâtiment) pour un lecteur, mais le sens de la dénomination Mérimée dans la réponse
+  attendue.
+
+**Limites** : les trois versions ont été mises au point sur **les mêmes 72 questions**, donc le score
+de la v3 est optimiste. Il faudrait un jeu de questions tenu à l'écart pour le confirmer, et c'est
+pour ça que je me suis arrêté à la v3. Les effectifs par type sont petits (5 à 20 questions), et un
+seul run a été fait par version.
 
 ## Choix de conception
 

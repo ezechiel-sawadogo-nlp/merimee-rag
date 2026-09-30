@@ -81,3 +81,51 @@ Moyennes avec intervalle de confiance à 95 % (bootstrap, 2 000 tirages) entre c
 | rag-bm25 | 1 | 33 | 12 | 4 |
 | rag-dense | 0 | 30 | 12 | 8 |
 | rag-hybrid | 0 | 33 | 11 | 6 |
+
+## RAG fixe vs agent
+
+72 questions. Même modèle pour les deux systèmes ; notation automatique sur des réponses calculées à partir des données (juge LLM pour « Fait »).
+
+![agent](agent.png)
+
+| system | Comptage | Liste | Maximum | Multi-étapes | Fait (historique) | Hors corpus | Total |
+|---|---|---|---|---|---|---|---|
+| **rag-hybrid** | 0.050 <sub>[0.00–0.15]</sub> | 0.655 <sub>[0.60–0.72]</sub> | 0.100 <sub>[0.00–0.25]</sub> | 0.450 <sub>[0.35–0.50]</sub> | 0.900 <sub>[0.73–1.00]</sub> | 1.000 <sub>[1.00–1.00]</sub> | 0.456 <sub>[0.36–0.55]</sub> |
+| **agent** | 0.850 <sub>[0.70–1.00]</sub> | 1.000 <sub>[1.00–1.00]</sub> | 0.900 <sub>[0.70–1.00]</sub> | 0.800 <sub>[0.65–0.95]</sub> | 0.733 <sub>[0.50–0.93]</sub> | 0.600 <sub>[0.20–1.00]</sub> | 0.833 <sub>[0.75–0.91]</sub> |
+
+
+**Comportement de l'agent**
+
+| type | bon outil | appels d'outils | appels en erreur | filtres inventés | citations inventées | étapes épuisées | latence |
+|---|---|---|---|---|---|---|---|
+| Comptage | 100% | 1.0 | 0% | 0% | 0% | 0% | 2.9 s |
+| Liste | 100% | 1.0 | 0% | 0% | 0% | 0% | 4.6 s |
+| Maximum | 90% | 1.0 | 0% | 0% | 0% | 0% | 3.5 s |
+| Multi-étapes | 50% | 1.6 | 0% | 0% | 0% | 0% | 5.4 s |
+| Fait (historique) | 80% | 1.0 | 13% | 0% | 0% | 0% | 5.0 s |
+| Hors corpus | – | 0.4 | 0% | 0% | 0% | 0% | 2.4 s |
+
+
+**Itération guidée par l'analyse d'erreurs** (agent v1 → v2 → v3, même modèle, mêmes questions)
+
+| type | RAG fixe | agent v1 | agent v2 | agent v3 |
+|---|---|---|---|---|
+| Comptage | 0.05 | 0.95 | 0.95 | **0.85** |
+| Liste | 0.65 | 0.83 | 0.37 | **1.00** |
+| Maximum | 0.10 | 1.00 | 0.90 | **0.90** |
+| Multi-étapes | 0.45 | 0.30 | 0.80 | **0.80** |
+| Fait (historique) | 0.90 | 0.43 | 0.07 | **0.73** |
+| Hors corpus | 1.00 | 1.00 | 0.80 | **0.60** |
+| Total | 0.46 | 0.74 | 0.63 | **0.83** |
+
+
+**Diagnostic de chaque réponse de l'agent**
+
+| type | correct | mauvais arguments (donnée jamais obtenue) | mauvais outil | n'a pas refusé |
+|---|---|---|---|---|
+| Maximum | 9 | 0 | 1 | 0 |
+| Comptage | 17 | 3 | 0 | 0 |
+| Liste | 12 | 0 | 0 | 0 |
+| Fait (historique) | 10 | 2 | 3 | 0 |
+| Multi-étapes | 6 | 0 | 4 | 0 |
+| Hors corpus | 3 | 0 | 0 | 2 |
