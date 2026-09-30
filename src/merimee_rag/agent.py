@@ -36,8 +36,10 @@ Choisis l'outil adapté :
 
 Règles sur les arguments :
 - n'utilise QUE les filtres que la question demande ; n'invente ni dates, ni bornes, ni critères ;
-- « monuments protégés » ne veut pas dire protection="inscrit" : toute la base est protégée ; n'utilise
-  protection que si la question dit « classé » ou « inscrit » ;
+- « monuments protégés » = toute la base : ne mets pas protection (ou protection="tous") ; n'utilise
+  protection="classé" ou "inscrit" que si la question emploie ce mot ;
+- search prend une seule chose : query, une phrase avec le nom du monument et sa commune ; les critères
+  (type, siècle, dates) sont pour filter_notices et count ;
 - une seule valeur par filtre (pas de liste) ;
 - si un outil renvoie une erreur, lis les valeurs proposées et corrige tes arguments.
 
@@ -47,8 +49,8 @@ de tes outils ; un comptage n'a pas besoin de référence.
 Appelle toujours au moins un outil avant de conclure que l'information est absente.
 Si les outils ne permettent pas de répondre, réponds exactement : « {ABSTAIN} »"""
 
-NUDGE = ("Tu n'as appelé aucun outil. Cherche d'abord dans la base (search pour un monument précis, "
-         "count ou filter_notices pour des critères) avant de conclure.")
+NUDGE = ("Tu n'as appelé aucun outil. Cherche d'abord dans la base avant de conclure : pour un monument "
+         "précis, appelle search avec query = la question ; pour des critères, count ou filter_notices.")
 
 FINALIZE = ("Tu as atteint le nombre maximal d'étapes. Réponds maintenant à la question avec les informations "
             "déjà obtenues, sans appeler d'outil.")

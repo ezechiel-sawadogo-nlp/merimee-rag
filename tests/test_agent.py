@@ -9,7 +9,7 @@ import pytest
 from merimee_rag.agent import Agent, extract_tool_calls
 from merimee_rag.config import ABSTAIN
 from merimee_rag.metadata import MetadataStore
-from merimee_rag.tools import TOOL_NAMES, Toolbox
+from merimee_rag.tools import TOOL_NAMES, TOOL_SPECS, Toolbox
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -249,3 +249,53 @@ def test_list_scoring_ignores_homonymous_titles():
     # champs envoyés vides par le modèle : ce ne sont pas des filtres inventés
     steps = [{"tool": "count", "args": {"departement": "Aube", "auteur": None, "mot_cle": ""}}]
     assert extra_filters({"filters": {"departement": "Aube"}}, steps) == []
+
+
+# ------------------------------------------------------------------ régressions v2 (analyse d'erreurs)
+def _search_toolbox():
+    from merimee_rag.corpus import Chunk
+    from merimee_rag.retrievers import BM25Retriever
+
+    chunks = [Chunk("TEST1002#0", "TEST1002", 0, "Église Notre-Dame-Imaginaire (Pontest)\nReconstruite par Jean Fictif."),
+              Chunk("TEST1004#0", "TEST1004", 0, "Moulin du Gué (Riviertest)\nMoulin à eau."),
+              Chunk("TEST1003#0", "TEST1003", 0, "Château de Testmont (Testmont)\nBâti pour la famille."),
+              Chunk("TEST1005#0", "TEST1005", 0, "Église Saint-Exemple (Riviertest)\nBelle église.")]
+    return Toolbox(MetadataStore.load(FIX / "mini_meta.json"), {"bm25": BM25Retriever(chunks)}, chunks)
+
+
+def test_search_without_query_rebuilds_it():
+    # v2 : search(commune=…, mot_cle=…) sans query → 92 % d'appels en erreur sur les questions factuelles
+    t = _search_toolbox()
+    out = t.call("search", {"commune": "Riviertest", "mot_cle": "moulin", "annee_min": 1780})
+    assert "erreur" not in out and out["resultats"][0]["ref"] == "TEST1004"
+    assert "query absente" in out["note"]
+    assert "erreur" in t.call("search", {})
+
+
+def test_search_unknown_place_is_added_to_query_not_an_error():
+    # v2 : search(query=…, commune="Girolata") → « commune inconnue » (hameau, pas une commune)
+    out = _search_toolbox().call("search", {"query": "moulin", "commune": "Hameau-Imaginaire"})
+    assert "erreur" not in out and out["resultats"] and "ajouté à la requête" in out["note"]
+
+
+def test_search_spec_exposes_only_query_method_k():
+    spec = next(t for t in TOOL_SPECS if t["function"]["name"] == "search")
+    assert set(spec["function"]["parameters"]["properties"]) == {"query", "method", "k"}
+
+
+def test_protection_tous_is_not_a_filter(tb):
+    from eval.agent_scoring import extra_filters
+
+    # v2 : « monuments protégés » → protection="classé" inventé dans 11 listes sur 12
+    total = tb.call("count", {})["total"]
+    for v in ("tous", "protégé", "Tous"):
+        assert tb.call("count", {"protection": v})["total"] == total
+    q = {"type": "list", "filters": {"commune": "Riviertest"}}
+    assert extra_filters(q, [{"tool": "filter_notices", "args": {"commune": "Riviertest", "protection": "tous"}}]) == []
+
+
+def test_homonymous_commune_warning(tb):
+    out = tb.call("filter_notices", {"commune": "Homotest"})
+    assert "attention" in out and "Aube" in out["attention"] and "Cher" in out["attention"]
+    assert "attention" not in tb.call("filter_notices", {"commune": "Homotest", "departement": "Aube"})
+    assert "attention" not in tb.call("count", {"commune": "Riviertest"})

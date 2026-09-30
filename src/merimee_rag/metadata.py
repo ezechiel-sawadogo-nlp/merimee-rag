@@ -96,6 +96,9 @@ GROUP_FIELDS = ("region", "departement", "commune", "denomination", "siecle_prin
                 "statut", "domaine")
 
 
+PROTECTION_ALL = ("tous", "toute", "protege", "all")
+
+
 class FilterError(ValueError):
     """Valeur de filtre inconnue ; le message propose les valeurs proches (utile à l'agent)."""
 
@@ -160,6 +163,9 @@ class MetadataStore:
 
     def match(self, **filters: Any) -> list[Record]:
         f = {k: v for k, v in filters.items() if v not in (None, "", [])}
+        # « tous » / « protégé » : toute la base est protégée, ce n'est pas un filtre
+        if isinstance(f.get("protection"), str) and norm(f["protection"]).startswith(PROTECTION_ALL):
+            del f["protection"]
         unknown = set(f) - set(FILTER_FIELDS)
         if unknown:
             raise FilterError(f"filtre(s) inconnu(s) : {sorted(unknown)}. Filtres possibles : {list(FILTER_FIELDS)}")

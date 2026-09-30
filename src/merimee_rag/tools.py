@@ -25,10 +25,10 @@ _FILTER_PROPS: dict[str, dict] = {
                      "maison, pont, moulin, abbaye, croix, manoir, fontaine…"},
     "domaine": {"type": "string", "description": "Domaine : religieuse, domestique, militaire, funéraire, industrielle…"},
     "siecle": {"type": "integer", "description": "Siècle de construction, en nombre (12 pour le 12e siècle)"},
-    "protection": {"type": "string", "enum": ["classé", "inscrit"],
-                   "description": "Niveau de protection, SEULEMENT si la question dit « classé » ou « inscrit ». "
-                   "Ne pas l'utiliser pour « protégé » : toutes les notices de la base sont protégées "
-                   "(classées ou inscrites)."},
+    "protection": {"type": "string", "enum": ["tous", "classé", "inscrit"],
+                   "description": "Niveau de protection. « tous » (défaut) pour « monuments protégés » : toutes "
+                   "les notices de la base sont protégées. « classé » ou « inscrit » SEULEMENT si la question "
+                   "emploie ce mot."},
     "statut": {"type": "string", "enum": ["publique", "privée", "mixte"], "description": "Propriétaire"},
     "auteur": {"type": "string", "description": "Nom (ou partie du nom) d'un architecte ou auteur"},
     "annee_min": {"type": "integer", "description": "Année de protection minimale — UNIQUEMENT si la question "
@@ -42,14 +42,14 @@ TOOL_SPECS: list[dict] = [
     {"type": "function", "function": {
         "name": "search",
         "description": "Recherche en texte libre dans les historiques des notices. À utiliser pour une question "
-                       "sur l'histoire d'un monument précis (qui l'a construit, quand, que s'est-il passé).",
+                       "sur l'histoire d'un monument précis (qui l'a construit, quand, que s'est-il passé). "
+                       "Un seul argument utile : query, une phrase avec le nom du monument et sa commune.",
         "parameters": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string", "description": "La question ou des mots-clés, avec le nom du monument et la commune"},
+            "query": {"type": "string", "description": "La question ou des mots-clés, avec le nom du monument et la "
+                      "commune, ex. « architecte du palais de justice de Toulouse »"},
             "method": {"type": "string", "enum": ["hybrid", "bm25", "dense"],
                        "description": "hybrid par défaut ; bm25 pour des noms propres rares"},
-            "k": {"type": "integer", "description": "Nombre de passages (1 à 10, défaut 5)"},
-            "commune": {"type": "string", "description": "Facultatif : ne garder que les notices de cette commune"},
-            "departement": {"type": "string", "description": "Facultatif : ne garder que ce département"}}}}},
+            "k": {"type": "integer", "description": "Nombre de passages (1 à 10, défaut 5)"}}}}},
     {"type": "function", "function": {
         "name": "filter_notices",
         "description": "Liste les notices qui satisfont des critères structurés (commune, département, type "
@@ -116,15 +116,35 @@ class Toolbox:
             return {"erreur": f"arguments invalides pour {name} : {e}"}
 
     # ------------------------------------------------------------------ outils
-    def search(self, query: str, method: str = "hybrid", k: int = 5, commune: str | None = None,
+    def search(self, query: str | None = None, method: str = "hybrid", k: int = 5, commune: str | None = None,
                departement: str | None = None, **ignored: Any) -> dict:
+        """Recherche plein texte. Tolérante : le modèle confond parfois search et filter_notices
+        (v2 : search(commune=…, mot_cle=…) sans query). On reconstruit alors la requête à partir
+        des valeurs reçues plutôt que d'échouer, et on le lui signale dans « note »."""
+        notes = []
+        if not query or not str(query).strip():
+            parts = [str(v) for v in (*ignored.values(), commune, departement)
+                     if isinstance(v, (str, int)) and not isinstance(v, bool)]
+            if not parts:
+                return {"erreur": "search attend query : une phrase avec le nom du monument et sa commune"}
+            query = " ".join(parts)
+            notes.append(f"query absente : recherche lancée sur « {query} »")
+        elif ignored:
+            notes.append(f"arguments ignorés par search : {sorted(ignored)} ; pour filtrer par type, siècle ou "
+                         "protection, utilise filter_notices ou count")
         if method not in self.retrievers:
             method = "hybrid" if "hybrid" in self.retrievers else next(iter(self.retrievers))
         k = _coerce_int(k, 5, 1, 10)
-        # filtres de lieu : on cherche large puis on garde les notices du bon endroit
+        # filtres de lieu : on cherche large puis on garde les notices du bon endroit ; un lieu inconnu
+        # (hameau, lieu-dit) n'est pas une erreur : on l'ajoute simplement à la requête
         allowed = None
         if commune or departement:
-            allowed = {r.ref for r in self.store.match(commune=commune, departement=departement)}
+            try:
+                allowed = {r.ref for r in self.store.match(commune=commune, departement=departement)}
+            except FilterError:
+                extra = " ".join(str(x) for x in (commune, departement) if x and str(x) not in str(query))
+                query = f"{query} {extra}".strip()
+                notes.append("lieu absent de la liste des communes : ajouté à la requête au lieu de filtrer")
         hits = self.retrievers[method].search(str(query), k if allowed is None else max(100, k * 20))
         out = []
         for h in hits:
@@ -141,19 +161,31 @@ class Toolbox:
             if len(out) >= k:
                 break
         res: dict[str, Any] = {"methode": method, "resultats": out}
-        if ignored:
-            res["note"] = (f"arguments ignorés par search : {sorted(ignored)} ; pour filtrer par type, siècle "
-                           "ou protection, utilise filter_notices ou count")
+        if notes:
+            res["note"] = " ; ".join(notes)
         return res
+
+    def _homonyms(self, filters: dict, recs: list | None = None) -> dict:
+        """Commune homonyme (Saint-Hippolyte existe dans 5 départements) sans département précisé."""
+        if not filters.get("commune") or filters.get("departement"):
+            return {}
+        try:
+            deps = sorted({r.departement for r in self.store.match(commune=filters["commune"]) if r.departement})
+        except FilterError:
+            return {}
+        if len(deps) < 2:
+            return {}
+        return {"attention": f"la commune « {filters['commune']} » existe dans plusieurs départements ({', '.join(deps)}) : "
+                             "ajoute departement=… si la question le précise"}
 
     def filter_notices(self, **filters: Any) -> dict:
         recs = self.store.match(**filters)
-        return {"total": len(recs), "affichees": min(len(recs), MAX_LIST),
+        return {"total": len(recs), "affichees": min(len(recs), MAX_LIST), **self._homonyms(filters, recs),
                 "notices": [r.summary() for r in recs[:MAX_LIST]]}
 
     def count(self, group_by: str | None = None, **filters: Any) -> dict:
         recs = self.store.match(**filters)
-        res: dict[str, Any] = {"total": len(recs), "filtres": filters}
+        res: dict[str, Any] = {"total": len(recs), "filtres": filters, **self._homonyms(filters, recs)}
         if group_by:
             groups = self.store.group_counts(recs, group_by)
             res["group_by"] = group_by

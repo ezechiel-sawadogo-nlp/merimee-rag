@@ -141,5 +141,51 @@
 "auteur": [],
 "historique": "Fiche fictive. Croix de chemin sculptée.",
 "coordonnees": ""
+},
+{
+"id": "TEST2001",
+"titre": "Lavoir de Homotest 1",
+"denomination": [
+"lavoir"
+],
+"commune": "Homotest",
+"departement": "Aube",
+"region": "Grand Est",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "inscrit",
+"annee_protection": null,
+"siecles": [
+19
+],
+"siecle_principal": 19,
+"statut_proprietaire": "publique",
+"auteur": [],
+"historique": "Fiche fictive. Lavoir communal.",
+"coordonnees": "48.3,4.1"
+},
+{
+"id": "TEST2002",
+"titre": "Lavoir de Homotest 2",
+"denomination": [
+"lavoir"
+],
+"commune": "Homotest",
+"departement": "Cher",
+"region": "Centre-Val de Loire",
+"domaine": [
+"architecture religieuse"
+],
+"protection": "inscrit",
+"annee_protection": null,
+"siecles": [
+19
+],
+"siecle_principal": 19,
+"statut_proprietaire": "publique",
+"auteur": [],
+"historique": "Fiche fictive. Lavoir communal.",
+"coordonnees": "48.3,4.1"
 }
 ]

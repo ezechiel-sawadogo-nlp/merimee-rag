@@ -184,16 +184,23 @@ def main() -> None:
                                  f"{fmt(r.get('invented_citation_rate'))} | {fmt(r.get('max_steps_rate'))} | "
                                  f"{r['latency_s']:.1f} s |")
             parts.append("")
-        v1p = R / "agent_v1_summary.csv"
-        if v1p.exists():
-            v1 = pd.read_csv(v1p)
-            v1 = v1[v1.system == "agent"].set_index("type")["score"]
-            v2 = a[a.system == "agent"].set_index("type")["score"]
+        # versions précédentes archivées (agent_v1_summary.csv, agent_v2_summary.csv…) + version courante
+        prev = sorted(R.glob("agent_v*_summary.csv"), key=lambda p: int(p.stem.split("_v")[1].split("_")[0]))
+        if prev:
+            cur = f"v{int(prev[-1].stem.split('_v')[1].split('_')[0]) + 1}"
+            cols = {p.stem.split("_")[1]: pd.read_csv(p) for p in prev}
+            cols = {k: v[v.system == "agent"].set_index("type")["score"] for k, v in cols.items()}
+            cols[cur] = a[a.system == "agent"].set_index("type")["score"]
             rag = a[a.system == "rag"].set_index("type")["score"]
-            parts += ["\n**Itération guidée par l'analyse d'erreurs** (agent v1 → v2, même modèle, mêmes questions)\n",
-                      "| type | RAG fixe | agent v1 | agent v2 |", "|---|---|---|---|"]
-            parts += [f"| {labels[t]} | {rag.get(t, float('nan')):.2f} | {v1.get(t, float('nan')):.2f} | "
-                      f"**{v2.get(t, float('nan')):.2f}** |" for t in types]
+            names = list(cols)
+            parts += [f"\n**Itération guidée par l'analyse d'erreurs** (agent {' → '.join(names)}, même modèle, "
+                      "mêmes questions)\n",
+                      "| type | RAG fixe | " + " | ".join(f"agent {n}" for n in names) + " |",
+                      "|---" * (len(names) + 2) + "|"]
+            for t in types:
+                cells = [f"{cols[n].get(t, float('nan')):.2f}" for n in names]
+                cells[-1] = f"**{cells[-1]}**"
+                parts.append(f"| {labels[t]} | {rag.get(t, float('nan')):.2f} | " + " | ".join(cells) + " |")
             parts.append("")
         if (R / "agent_errors.csv").exists():
             e = pd.read_csv(R / "agent_errors.csv", index_col=0)

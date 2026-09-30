@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from merimee_rag.metadata import norm
+from merimee_rag.metadata import PROTECTION_ALL, norm
 
 _NUM = re.compile(r"(?<![\w.,])(\d{1,3}(?:[   ]\d{3})+|\d+)(?![\w]|[.,]\d)")
 REF = re.compile(r"\b(?:PA|EA|IA|AP)[0-9A-Z]{8}\b")
@@ -118,7 +118,8 @@ def extra_filters(q: dict, steps: list[dict]) -> list[str]:
         return []
     # le modèle envoie souvent tous les champs, vides (« auteur": null ») : seuls les filtres renseignés comptent
     used = {k for s in steps if s["tool"] in ("count", "filter_notices")
-            for k, v in s["args"].items() if v not in (None, "", [], {})}
+            for k, v in s["args"].items() if v not in (None, "", [], {})
+            and not (k == "protection" and norm(v).startswith(PROTECTION_ALL))}  # « tous » = pas de filtre
     return sorted(used - wanted)
 
 

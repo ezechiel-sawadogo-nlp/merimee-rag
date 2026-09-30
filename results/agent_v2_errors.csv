@@ -1,0 +1,7 @@
+type,aucun outil appelé,correct,mauvais arguments (donnée jamais obtenue),mauvais outil,n'a pas refusé,"synthèse (bonne donnée, mauvaise réponse)"
+argmax,0,9,0,0,0,1
+count,0,19,1,0,0,0
+list,0,1,11,0,0,0
+lookup,2,0,9,4,0,0
+multistep,0,7,3,0,0,0
+ooc,0,4,0,0,1,0
