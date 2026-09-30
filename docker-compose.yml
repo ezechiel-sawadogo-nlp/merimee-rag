@@ -4,8 +4,8 @@ services:
     image: ollama/ollama:latest
     volumes:
       - ollama:/root/.ollama
-    ports:
-      - "11434:11434"
+    # Pas de port publié : l'application joint Ollama par le réseau interne de Docker, et le port
+    # 11434 de la machine reste libre pour un Ollama local. Pour l'exposer : ports: ["11435:11434"]
     environment:
       OLLAMA_MAX_LOADED_MODELS: "2"      # générateur + agent/juge restent chargés ensemble
       OLLAMA_KEEP_ALIVE: "1h"

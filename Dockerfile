@@ -24,7 +24,8 @@ COPY app.py ./
 COPY eval ./eval
 COPY data/monuments.json.gz ./data/monuments.json.gz
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# retire d'éventuelles fins de ligne Windows (clone avec autocrlf)
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 8501
 ENTRYPOINT ["/entrypoint.sh"]

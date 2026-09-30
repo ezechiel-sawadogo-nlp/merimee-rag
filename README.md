@@ -129,7 +129,11 @@ merimee-rag agent "Quel département du Centre-Val de Loire compte le plus de ch
 #  → L'Indre-et-Loire, avec 40 châteaux classés.
 ```
 
-Dans la démo Streamlit, le sélecteur **Mode : Agent** affiche les étapes de l'agent.
+Dans la démo Streamlit, le sélecteur **Mode : Agent** affiche les étapes de l'agent :
+
+![Mode agent : un seul appel count groupé par département, réponse exacte](docs/demo_agent.png)
+
+*Démo lancée avec `docker compose up` (CPU, sans GPU) : l'agent répond par un seul appel `count(region=…, denomination="château", protection="classé", group_by="departement")`.*
 
 **Évaluation RAG fixe vs agent** ([`eval/eval_agent.py`](eval/eval_agent.py)) : 72 questions dont les
 réponses sont **calculées sur les données** (donc exactes, sans juge) — comptages, listes de notices,
@@ -292,13 +296,17 @@ Trois services : `ollama` (serveur de modèles), `ollama-init` (télécharge `qw
 une seule fois, ~7 Go) et `app` (démo Streamlit ; au premier démarrage, construit le corpus et les
 index dans un volume, puis les réutilise). Tout est conservé entre deux lancements.
 
+Premier lancement mesuré sur un PC Windows sans GPU (Docker Desktop) : environ 1 h au total, dont
+~40 min pour calculer les embeddings des 26 687 passages sur CPU (~21 Go d'espace disque mesurés, images et cache compris ; ~7 Go de mémoire pendant une réponse du 7B). Les lancements
+suivants démarrent en quelques secondes.
+
 ```powershell
 docker compose exec app merimee-rag agent "Quel département compte le plus de moulins protégés ?"
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build   # avec GPU NVIDIA
 ```
 
-Sans GPU, compter 10 à 30 s par réponse du 7B. `MERIMEE_NO_DENSE=1 docker compose up` démarre plus vite
-(recherche BM25 seulement, sans calcul des embeddings).
+Sans GPU, compter 10 à 30 s par réponse du 7B. Pour un premier essai rapide,
+`MERIMEE_NO_DENSE=1 docker compose up` saute le calcul des embeddings (recherche BM25 seulement).
 
 ## Utilisation
 
