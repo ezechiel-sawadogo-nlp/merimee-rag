@@ -85,6 +85,53 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def write_outputs(recs: list[dict], R: Path, has_agent: bool) -> pd.DataFrame:
+    R.mkdir(parents=True, exist_ok=True)
+    with open(R / "agent_per_query.jsonl", "w", encoding="utf-8") as f:
+        for r in recs:
+            f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+    df = pd.DataFrame(recs)
+    summ = summarize(df)
+    summ.to_csv(R / "agent_summary.csv", index=False)
+    if has_agent:
+        diag = df[df.system == "agent"].pivot_table(index="type", columns="diagnostic", values="id",
+                                                    aggfunc="count", fill_value=0)
+        diag.to_csv(R / "agent_errors.csv")
+        print("\nDiagnostic de l'agent :\n" + diag.to_string())
+    piv = summ.pivot(index="type", columns="system", values="score").reindex(TYPES + ["TOTAL"])
+    print("\nExactitude par type :\n" + piv.round(3).to_string())
+    return summ
+
+
+def rescore(cfg: Config, testset: Path) -> None:
+    """Rejoue la notation sur des réponses déjà obtenues (après correction d'un bug de notation)."""
+    Q = {q["id"]: q for q in (json.loads(l) for l in open(testset, encoding="utf-8") if l.strip())}
+    R = cfg.results_dir
+    recs = [json.loads(l) for l in open(R / "agent_per_query.jsonl", encoding="utf-8") if l.strip()]
+    changed = 0
+    for rec in recs:
+        q = Q[rec["id"]]
+        abstained = rec["status"] == "abstention"
+        old = rec.get("score")
+        if q["type"] == "lookup" and not abstained:
+            s = {"score": rec.get("score")}  # note du juge conservée
+        else:
+            s = score(q, rec["answer"], abstained)
+        rec.update(s)
+        if rec["system"] == "agent":
+            for st in rec["steps"]:
+                if isinstance(st.get("args"), dict):
+                    st["args"] = {k: v for k, v in st["args"].items() if v not in (None, "", [], {})}
+            rec["extra_filters"] = extra_filters(q, rec["steps"])
+            rec["has_extra_filters"] = bool(rec["extra_filters"])
+            rec["tool_ok"] = tool_ok(q, rec["steps"])
+            rec["gold_in_tools"] = gold_seen(q, rec["steps"])
+            rec["diagnostic"] = diagnose(q, rec)
+        changed += old != rec.get("score")
+    print(f"{changed} notes modifiées")
+    write_outputs(recs, R, any(r["system"] == "agent" for r in recs))
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -95,7 +142,11 @@ def main() -> None:
     ap.add_argument("--limit-per-type", type=int, default=None)
     ap.add_argument("--model", default=None, help="modèle des deux systèmes (défaut : MERIMEE_AGENT_MODEL)")
     ap.add_argument("--judge-model", default=None)
+    ap.add_argument("--rescore", action="store_true",
+                    help="recalcule notes et diagnostics depuis results/agent_per_query.jsonl, sans appeler le LLM")
     args = ap.parse_args()
+    if args.rescore:
+        return rescore(cfg, args.testset)
 
     from merimee_rag.store import System, build_toolbox
 
@@ -119,21 +170,7 @@ def main() -> None:
     print(f"{len(questions)} questions × {list(runners)} — modèle {model}, juge {judge.model}")
     recs = run(questions, runners, judge, titles)
 
-    R = cfg.results_dir
-    R.mkdir(parents=True, exist_ok=True)
-    with open(R / "agent_per_query.jsonl", "w", encoding="utf-8") as f:
-        for r in recs:
-            f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
-    df = pd.DataFrame(recs)
-    summ = summarize(df)
-    summ.to_csv(R / "agent_summary.csv", index=False)
-    if "agent" in runners:
-        diag = df[df.system == "agent"].pivot_table(index="type", columns="diagnostic", values="id",
-                                                    aggfunc="count", fill_value=0)
-        diag.to_csv(R / "agent_errors.csv")
-        print("\nDiagnostic de l'agent :\n" + diag.to_string())
-    piv = summ.pivot(index="type", columns="system", values="score").reindex(TYPES + ["TOTAL"])
-    print("\nExactitude par type :\n" + piv.round(3).to_string())
+    write_outputs(recs, cfg.results_dir, "agent" in runners)
 
 
 if __name__ == "__main__":

@@ -63,8 +63,9 @@ def score(q: dict, answer: str, abstained: bool, titles_by_ref: dict[str, str] |
         return {"score": (name_ok + count_ok) / 2, "name_ok": name_ok, "count_ok": count_ok}
     if t == "list":
         gold = set(q["gold"])
-        cands = {**(titles_by_ref or {}), **dict(zip(q["gold"], q["gold_titles"]))}
-        got = refs_in(answer, cands)
+        # Titres recopiés : on ne crédite que ceux des notices attendues. (Comparer à tous les titres de la
+        # base ajoutait de fausses références : « Église Saint-Valentin » existe dans plusieurs communes.)
+        got = refs_in(answer, dict(zip(q["gold"], q["gold_titles"])))
         tp = len(gold & got)
         p = tp / len(got) if got else 0.0
         r = tp / len(gold)
@@ -115,7 +116,9 @@ def extra_filters(q: dict, steps: list[dict]) -> list[str]:
     wanted = set((q.get("filters") or {}).keys()) | {"group_by"}
     if not q.get("filters"):
         return []
-    used = {k for s in steps if s["tool"] in ("count", "filter_notices") for k in s["args"]}
+    # le modèle envoie souvent tous les champs, vides (« auteur": null ») : seuls les filtres renseignés comptent
+    used = {k for s in steps if s["tool"] in ("count", "filter_notices")
+            for k, v in s["args"].items() if v not in (None, "", [], {})}
     return sorted(used - wanted)
 
 

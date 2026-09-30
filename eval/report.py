@@ -184,6 +184,17 @@ def main() -> None:
                                  f"{fmt(r.get('invented_citation_rate'))} | {fmt(r.get('max_steps_rate'))} | "
                                  f"{r['latency_s']:.1f} s |")
             parts.append("")
+        v1p = R / "agent_v1_summary.csv"
+        if v1p.exists():
+            v1 = pd.read_csv(v1p)
+            v1 = v1[v1.system == "agent"].set_index("type")["score"]
+            v2 = a[a.system == "agent"].set_index("type")["score"]
+            rag = a[a.system == "rag"].set_index("type")["score"]
+            parts += ["\n**Itération guidée par l'analyse d'erreurs** (agent v1 → v2, même modèle, mêmes questions)\n",
+                      "| type | RAG fixe | agent v1 | agent v2 |", "|---|---|---|---|"]
+            parts += [f"| {labels[t]} | {rag.get(t, float('nan')):.2f} | {v1.get(t, float('nan')):.2f} | "
+                      f"**{v2.get(t, float('nan')):.2f}** |" for t in types]
+            parts.append("")
         if (R / "agent_errors.csv").exists():
             e = pd.read_csv(R / "agent_errors.csv", index_col=0)
             parts += ["\n**Diagnostic de chaque réponse de l'agent**\n",

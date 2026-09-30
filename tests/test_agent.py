@@ -67,11 +67,19 @@ def test_search_tool_with_retriever():
     from merimee_rag.retrievers import BM25Retriever
 
     chunks = [Chunk("TEST1002#0", "TEST1002", 0, "Église Notre-Dame-Imaginaire (Pontest)\nReconstruite par Jean Fictif."),
-              Chunk("TEST1004#0", "TEST1004", 0, "Moulin du Gué (Riviertest)\nMoulin à eau.")]
+              Chunk("TEST1004#0", "TEST1004", 0, "Moulin du Gué (Riviertest)\nMoulin à eau."),
+              # 3e et 4e passages : avec 2 documents seulement, l'IDF de BM25 vaut 0 pour tout mot présent une fois
+              Chunk("TEST1003#0", "TEST1003", 0, "Château de Testmont (Testmont)\nBâti pour la famille."),
+              Chunk("TEST1005#0", "TEST1005", 0, "Église Saint-Exemple (Riviertest)\nBelle église.")]
     t = Toolbox(MetadataStore.load(FIX / "mini_meta.json"), {"bm25": BM25Retriever(chunks)}, chunks)
     out = t.call("search", {"query": "qui a reconstruit l'église de Pontest", "method": "dense", "k": "3"})
     assert out["methode"] == "bm25" and out["resultats"][0]["ref"] == "TEST1002"
     assert "Reconstruite" in out["resultats"][0]["extrait"]
+    assert out["resultats"][0]["auteurs"] == ["Jean Fictif (architecte)"]      # le nom de l'auteur est visible
+    # cas réels (v1) : search(commune=…) et search(auteur=…) faisaient échouer l'appel
+    out = t.call("search", {"query": "moulin", "commune": "Riviertest", "auteur": "x"})
+    assert [r["ref"] for r in out["resultats"]] == ["TEST1004"] and "ignorés" in out["note"]
+    assert t.call("search", {"query": "moulin", "commune": "Pontest"})["resultats"] == []
 
 
 # ------------------------------------------------------------------ boucle d'agent
@@ -115,8 +123,19 @@ def test_agent_max_steps_forces_final_answer(tb):
 
 
 def test_agent_empty_answer_becomes_abstention(tb):
-    res = Agent(ScriptedLLM([{"role": "assistant", "content": ""}]), tb).answer("?")
-    assert res.answer == ABSTAIN and res.abstained
+    llm = ScriptedLLM([{"role": "assistant", "content": ""}, {"role": "assistant", "content": ""}])
+    res = Agent(llm, tb).answer("?")
+    assert res.answer == ABSTAIN and res.abstained and res.n_llm_calls == 2  # une relance, puis abandon
+
+
+def test_agent_is_nudged_to_use_a_tool_before_abstaining(tb):
+    """Cas réel (v1) : « Je ne trouve pas… » sans aucun appel d'outil sur des questions factuelles."""
+    llm = ScriptedLLM([{"role": "assistant", "content": ABSTAIN},
+                       call("filter_notices", commune="Riviertest"),
+                       {"role": "assistant", "content": "Le Moulin du Gué [TEST1004]."}])
+    res = Agent(llm, tb).answer("Quels monuments à Riviertest ?")
+    assert res.tools_used == ["filter_notices"] and not res.abstained
+    assert "aucun outil" in llm.seen[1][0][-1]["content"]
 
 
 def test_tool_call_written_in_text_is_recovered():
@@ -216,3 +235,17 @@ def test_extra_filters_and_progress_callback(tb):
     llm = ScriptedLLM([call("count", denomination="église"), {"role": "assistant", "content": "3."}])
     Agent(llm, tb).answer("?", on_step=lambda i, s: seen.append((i, s.tool)))
     assert seen == [(1, "count")]
+
+
+def test_list_scoring_ignores_homonymous_titles():
+    """Bug réel : « Église Saint-Valentin » existe ailleurs ; seule la notice attendue doit être créditée."""
+    from eval.agent_scoring import extra_filters, score
+
+    q = {"type": "list", "gold": ["PA00132863", "PA70000116"],
+         "gold_titles": ["Maison-forte Vers le Village", "Église Saint-Valentin"]}
+    ans = "- PA00132863 : Maison-forte Vers le Village - PA70000116 : Église Saint-Valentin"
+    homonymes = {"PA00000001": "Église Saint-Valentin", "PA00000002": "Maison-forte Vers le Village"}
+    assert score(q, ans, False, homonymes)["score"] == 1.0
+    # champs envoyés vides par le modèle : ce ne sont pas des filtres inventés
+    steps = [{"tool": "count", "args": {"departement": "Aube", "auteur": None, "mot_cle": ""}}]
+    assert extra_filters({"filters": {"departement": "Aube"}}, steps) == []

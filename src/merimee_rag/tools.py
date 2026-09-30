@@ -26,7 +26,9 @@ _FILTER_PROPS: dict[str, dict] = {
     "domaine": {"type": "string", "description": "Domaine : religieuse, domestique, militaire, funéraire, industrielle…"},
     "siecle": {"type": "integer", "description": "Siècle de construction, en nombre (12 pour le 12e siècle)"},
     "protection": {"type": "string", "enum": ["classé", "inscrit"],
-                   "description": "Niveau de protection au titre des Monuments historiques"},
+                   "description": "Niveau de protection, SEULEMENT si la question dit « classé » ou « inscrit ». "
+                   "Ne pas l'utiliser pour « protégé » : toutes les notices de la base sont protégées "
+                   "(classées ou inscrites)."},
     "statut": {"type": "string", "enum": ["publique", "privée", "mixte"], "description": "Propriétaire"},
     "auteur": {"type": "string", "description": "Nom (ou partie du nom) d'un architecte ou auteur"},
     "annee_min": {"type": "integer", "description": "Année de protection minimale — UNIQUEMENT si la question "
@@ -45,7 +47,9 @@ TOOL_SPECS: list[dict] = [
             "query": {"type": "string", "description": "La question ou des mots-clés, avec le nom du monument et la commune"},
             "method": {"type": "string", "enum": ["hybrid", "bm25", "dense"],
                        "description": "hybrid par défaut ; bm25 pour des noms propres rares"},
-            "k": {"type": "integer", "description": "Nombre de passages (1 à 10, défaut 5)"}}}}},
+            "k": {"type": "integer", "description": "Nombre de passages (1 à 10, défaut 5)"},
+            "commune": {"type": "string", "description": "Facultatif : ne garder que les notices de cette commune"},
+            "departement": {"type": "string", "description": "Facultatif : ne garder que ce département"}}}}},
     {"type": "function", "function": {
         "name": "filter_notices",
         "description": "Liste les notices qui satisfont des critères structurés (commune, département, type "
@@ -112,21 +116,35 @@ class Toolbox:
             return {"erreur": f"arguments invalides pour {name} : {e}"}
 
     # ------------------------------------------------------------------ outils
-    def search(self, query: str, method: str = "hybrid", k: int = 5) -> dict:
+    def search(self, query: str, method: str = "hybrid", k: int = 5, commune: str | None = None,
+               departement: str | None = None, **ignored: Any) -> dict:
         if method not in self.retrievers:
             method = "hybrid" if "hybrid" in self.retrievers else next(iter(self.retrievers))
         k = _coerce_int(k, 5, 1, 10)
-        hits = self.retrievers[method].search(str(query), k)
+        # filtres de lieu : on cherche large puis on garde les notices du bon endroit
+        allowed = None
+        if commune or departement:
+            allowed = {r.ref for r in self.store.match(commune=commune, departement=departement)}
+        hits = self.retrievers[method].search(str(query), k if allowed is None else max(100, k * 20))
         out = []
         for h in hits:
+            if allowed is not None and h.ref not in allowed:
+                continue
             ch = self.chunks.get(h.chunk_id)
             rec = self.store.by_ref.get(h.ref)
             if ch is None:
                 continue
             out.append({"ref": h.ref, "titre": rec.titre if rec else "",
                         "commune": ", ".join(rec.commune) if rec else "",
+                        "auteurs": rec.auteurs if rec else [],
                         "extrait": ch.text.split("\n", 1)[-1][:700]})
-        return {"methode": method, "resultats": out}
+            if len(out) >= k:
+                break
+        res: dict[str, Any] = {"methode": method, "resultats": out}
+        if ignored:
+            res["note"] = (f"arguments ignorés par search : {sorted(ignored)} ; pour filtrer par type, siècle "
+                           "ou protection, utilise filter_notices ou count")
+        return res
 
     def filter_notices(self, **filters: Any) -> dict:
         recs = self.store.match(**filters)

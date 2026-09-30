@@ -28,18 +28,27 @@ Choisis l'outil adapté :
   avec le filtre englobant (ex. region=…) et group_by (ex. group_by="departement") : le résultat classe tous
   les groupes, le premier est le plus grand ;
 - lister des monuments selon des critères (commune, département, type, siècle, protection) → filter_notices ;
-- histoire d'un monument précis (qui l'a construit, quand, pourquoi) → search, puis get_notice si besoin ;
+- histoire d'un monument précis (qui l'a construit, quand, pourquoi, de quoi il est fait) → search avec le nom
+  du monument et sa commune, puis get_notice si l'extrait ne suffit pas ;
+- « combien de monuments sont attribués à tel architecte » → trouve d'abord son nom exact (champ « auteurs »
+  des résultats de search ou get_notice), puis count avec auteur="Nom Prénom" ;
 - détails d'une notice dont tu connais la référence → get_notice.
 
 Règles sur les arguments :
 - n'utilise QUE les filtres que la question demande ; n'invente ni dates, ni bornes, ni critères ;
+- « monuments protégés » ne veut pas dire protection="inscrit" : toute la base est protégée ; n'utilise
+  protection que si la question dit « classé » ou « inscrit » ;
 - une seule valeur par filtre (pas de liste) ;
 - si un outil renvoie une erreur, lis les valeurs proposées et corrige tes arguments.
 
 Réponse finale : courte ; reprends les nombres exacts renvoyés par les outils. Cite entre crochets les
 références des notices (format PA suivi de 8 caractères) UNIQUEMENT si elles figurent dans les résultats
 de tes outils ; un comptage n'a pas besoin de référence.
+Appelle toujours au moins un outil avant de conclure que l'information est absente.
 Si les outils ne permettent pas de répondre, réponds exactement : « {ABSTAIN} »"""
+
+NUDGE = ("Tu n'as appelé aucun outil. Cherche d'abord dans la base (search pour un monument précis, "
+         "count ou filter_notices pour des critères) avant de conclure.")
 
 FINALIZE = ("Tu as atteint le nombre maximal d'étapes. Réponds maintenant à la question avec les informations "
             "déjà obtenues, sans appeler d'outil.")
@@ -159,12 +168,19 @@ class Agent:
         messages: list[dict] = [{"role": "system", "content": SYSTEM_AGENT},
                                 {"role": "user", "content": question}]
         res = AgentAnswer(question=question, answer="")
+        nudged = False
         for _ in range(self.max_steps):
             msg = self.llm.chat_message(messages, tools=self.toolbox.specs)
             res.n_llm_calls += 1
             calls = extract_tool_calls(msg)
             if not calls:
-                res.answer = (msg.get("content") or "").strip()
+                text = (msg.get("content") or "").strip()
+                if not res.steps and not nudged and answer_status(text or ABSTAIN) == "abstention":
+                    # abandon sans avoir rien cherché : on relance une fois (cas fréquent sur les questions factuelles)
+                    nudged = True
+                    messages += [{"role": "assistant", "content": text}, {"role": "user", "content": NUDGE}]
+                    continue
+                res.answer = text
                 break
             messages.append({"role": "assistant", "content": msg.get("content") or "",
                              "tool_calls": [{"function": {"name": n, "arguments": a}} for n, a in calls]})
@@ -176,6 +192,8 @@ class Agent:
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {"_raw": args}
+                if isinstance(args, dict):
+                    args = {k: v for k, v in args.items() if v not in (None, "", [], {})}
                 res.steps.append(Step(name, args, out, "erreur" in out, time.perf_counter() - ts))
                 if on_step:
                     on_step(len(res.steps), res.steps[-1])

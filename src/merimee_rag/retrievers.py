@@ -79,7 +79,7 @@ class BM25Retriever:
         if not q:
             return []
         scores = self.bm25.get_scores(q)
-        top = _topk(scores, k)
+        top = [i for i in _topk(scores, k) if scores[i] > 0]  # un score nul = aucun mot en commun
         return [Hit(self.ids[i], self.refs[i], float(scores[i]), r) for r, i in enumerate(top)]
 
     def save(self, path: Path) -> None:
