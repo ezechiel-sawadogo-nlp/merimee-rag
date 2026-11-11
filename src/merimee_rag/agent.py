@@ -98,7 +98,13 @@ class AgentAnswer:
 
     @property
     def seen_refs(self) -> set[str]:
-        """Références apparues dans les résultats d'outils (les seules que l'agent peut citer légitimement)."""
+        """Références renvoyées par les outils dans un champ « ref » structuré (les seules que l'agent
+        peut citer légitimement).
+
+        Le texte libre (extraits, historiques) n'est volontairement pas parcouru : une notice qui
+        mentionne une référence ne doit pas suffire à la rendre « vue », sinon une notice piégée
+        pourrait faire passer une référence inventée pour légitime (faille D3, voir rag-redteam).
+        """
         found: set[str] = set()
 
         def walk(x: Any) -> None:
@@ -110,8 +116,6 @@ class AgentAnswer:
             elif isinstance(x, list):
                 for v in x:
                     walk(v)
-            elif isinstance(x, str):
-                found.update(REF_RE.findall(x))
 
         for s in self.steps:
             walk(s.result)
@@ -211,4 +215,4 @@ class Agent:
             res.answer = ABSTAIN
         res.status = answer_status(res.answer)
         res.latency_s = time.perf_counter() - t0
-        return res
+        return res
